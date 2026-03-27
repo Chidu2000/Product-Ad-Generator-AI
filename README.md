@@ -14,16 +14,6 @@ It returns a generated ad-style image plus a structured creative plan for follow
 - Backend: Express, TypeScript, Multer
 - Models: OpenAI Responses API
 
-## Architecture
-
-![Architecture overview](./docs/architecture-overview.png)
-
-System flow:
-- React client submits image + prompt to `POST /api/generate`
-- Express parses multipart form data and validates first-run vs refinement requests
-- OpenAI generates a creative plan first, then the ad image
-- API returns image data, plan metadata, and response state for iterative edits
-
 ## Project Setup
 
 ### Prerequisites
