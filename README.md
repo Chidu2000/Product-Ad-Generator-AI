@@ -16,7 +16,7 @@ It returns a generated ad-style image plus a structured creative plan for follow
 
 ## Architecture
 
-![Architecture overview](./docs/architecture-overview.svg)
+![Architecture overview](./docs/architecture-overview.png)
 
 System flow:
 - React client submits image + prompt to `POST /api/generate`
@@ -78,8 +78,6 @@ What to expect:
 npm run build
 npm start
 ```
-
-Production serves the built frontend from the Express server.
 
 ## Troubleshooting
 
