@@ -12,7 +12,7 @@ It returns a generated ad-style image plus a structured creative plan for follow
 
 - Frontend: React, TypeScript, Vite
 - Backend: Express, TypeScript, Multer
-- Models: OpenAI Responses API
+- Models: OpenAI gpt-4.1-mini
 
 ## Project Setup
 
@@ -35,8 +35,6 @@ Create `.env` in the project root:
 OPENAI_API_KEY=your_openai_api_key
 PORT=8787
 ```
-
-Notes:
 - `OPENAI_API_KEY` is required for `/api/generate`
 - `PORT` is optional and defaults to `8787`
 
