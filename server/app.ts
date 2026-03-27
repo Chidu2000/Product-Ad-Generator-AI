@@ -131,6 +131,22 @@ export function createApp(options?: { serveStatic?: boolean }) {
     }
   );
 
+
+  app.use("/api", (_req: Request, res: Response) => {
+    res.status(404).json({ error: "API route not found." });
+  });
+
+  app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (!req.path.startsWith("/api/")) {
+      next(error);
+      return;
+    }
+
+    console.error(error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unexpected API error."
+    });
+  });
   if (serveStatic) {
     app.use(express.static(distDir));
     app.get("*", (req: Request, res: Response, next: NextFunction) => {
@@ -408,5 +424,7 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   const cleaned = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   return cleaned.length ? cleaned.slice(0, 3) : fallback;
 }
+
+
 
 

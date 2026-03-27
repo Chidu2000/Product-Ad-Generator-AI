@@ -41,6 +41,7 @@ const starterPrompts = [
 ];
 
 const loadingSteps = ["Analyzing product", "Planning scene", "Rendering creative"];
+const maxUploadBytes = 4 * 1024 * 1024;
 
 export default function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -121,7 +122,23 @@ export default function App() {
         body: formData
       });
 
-      const payload = (await response.json()) as GenerationResult | { error: string };
+      const rawPayload = await response.text();
+      let payload: GenerationResult | { error: string } | null = null;
+
+      try {
+        payload = rawPayload ? (JSON.parse(rawPayload) as GenerationResult | { error: string }) : null;
+      } catch {
+        if (!response.ok) {
+          throw new Error(rawPayload || "Generation failed.");
+        }
+
+        throw new Error("Server returned a non-JSON response.");
+      }
+
+      if (!payload) {
+        throw new Error("Empty response from server.");
+      }
+
       if (!response.ok || "error" in payload) {
         throw new Error("error" in payload ? payload.error : "Generation failed.");
       }
@@ -157,6 +174,18 @@ export default function App() {
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
+
+    if (file && file.size > maxUploadBytes) {
+      setSelectedFile(null);
+      setResult(null);
+      setMessages([]);
+      setHistory([]);
+      setComparePosition(54);
+      setError("Image is too large for Vercel upload limits. Use a file under 4 MB.");
+      event.target.value = "";
+      return;
+    }
+
     setSelectedFile(file);
     setResult(null);
     setMessages([]);
@@ -329,3 +358,5 @@ export default function App() {
     </div>
   );
 }
+
+
