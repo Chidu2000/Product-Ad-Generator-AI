@@ -176,11 +176,12 @@ async function generateAdCreative(input: {
     { type: input.uploadedImage.mimetype }
   );
 
+  const imageModel = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
   const response = await openai.images.edit({
-    model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini",
+    model: imageModel,
     image: imageFile,
     prompt: editPrompt,
-    input_fidelity: "high",
+    ...(imageModel === "gpt-image-1" ? { input_fidelity: "high" as const } : {}),
     size: "auto",
     quality: "medium",
     output_format: "jpeg"
@@ -359,4 +360,5 @@ function buildSuggestedEdits(prompt: string) {
 function capitalizeWord(word: string) {
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
+
 

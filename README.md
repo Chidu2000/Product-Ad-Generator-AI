@@ -12,7 +12,7 @@ It returns a generated ad-style image plus a structured creative plan for follow
 
 - Frontend: React, TypeScript, Vite
 - Backend: Express, TypeScript, Multer
-- Models: OpenAI gpt-4.1-mini
+- AI: OpenAI Images API (`OPENAI_IMAGE_MODEL`, default `gpt-image-1-mini`)
 
 ## Project Setup
 
@@ -33,9 +33,11 @@ Create `.env` in the project root:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
+OPENAI_IMAGE_MODEL=gpt-image-1-mini
 PORT=8787
 ```
 - `OPENAI_API_KEY` is required for `/api/generate`
+- `OPENAI_IMAGE_MODEL` is optional and defaults to `gpt-image-1-mini`
 - `PORT` is optional and defaults to `8787`
 
 ### 3. Run the app
@@ -57,7 +59,7 @@ Endpoints:
 
 What to expect:
 - First generation requires an uploaded image.
-- Refinements reuse prior response state via `previousResponseId`.
+- Refinements reuse the original uploaded image with the latest prompt context.
 - The UI shows the generated image, creative direction, and version history.
 
 ## Build
@@ -71,5 +73,5 @@ npm start
 
 - `OPENAI_API_KEY is missing.`: add the key to `.env`
 - `Prompt is required.`: submit a non-empty prompt
-- `An image is required for the first generation.`: upload an image before the first request
+- `An image is required for every generation request.`: upload an image before generating or refining
 - `OpenAI did not return an image.`: retry the request; the upstream generation step returned no image payload
