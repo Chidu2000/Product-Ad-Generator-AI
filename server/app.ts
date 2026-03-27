@@ -1,11 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
 import express, { type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
-import OpenAI from "openai";
-import type { ResponseInputItem } from "openai/resources/responses/responses";
+import OpenAI, { toFile } from "openai";
 
 dotenv.config();
 
@@ -17,43 +17,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distDir = path.resolve(__dirname, "../dist");
 
-const creativePlanSchema = {
-  name: "creative_plan",
-  type: "json_schema",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      productType: { type: "string" },
-      visualStrategy: { type: "string" },
-      scenePrompt: { type: "string" },
-      headline: { type: "string" },
-      subheadline: { type: "string" },
-      designNotes: {
-        type: "array",
-        items: { type: "string" },
-        minItems: 3,
-        maxItems: 3
-      },
-      suggestedEdits: {
-        type: "array",
-        items: { type: "string" },
-        minItems: 3,
-        maxItems: 3
-      }
-    },
-    required: [
-      "productType",
-      "visualStrategy",
-      "scenePrompt",
-      "headline",
-      "subheadline",
-      "designNotes",
-      "suggestedEdits"
-    ]
-  }
-} as const;
+const fallbackNotes = [
+  "Keep the product sharply lit and clearly legible.",
+  "Use an intentional ad composition instead of a plain background swap.",
+  "Make the scene feel commercially believable."
+];
+
+const fallbackEdits = [
+  "Make the background warmer and more sunlit.",
+  "Push the headline larger and bolder.",
+  "Introduce stronger lifestyle props around the product."
+];
 
 type ChatTurn = {
   role: "user" | "assistant";
@@ -87,17 +61,6 @@ type GenerateRequestBody = {
   conversation?: unknown;
 };
 
-type ImageGenerationCall = {
-  type: "image_generation_call";
-  id: string;
-  result?: string;
-  revised_prompt?: string;
-  action?: string;
-  output_format?: string;
-  size?: string;
-  quality?: string;
-};
-
 export function createApp(options?: { serveStatic?: boolean }) {
   const app = express();
   const serveStatic = options?.serveStatic ?? false;
@@ -120,28 +83,23 @@ export function createApp(options?: { serveStatic?: boolean }) {
 
       try {
         const prompt = String(req.body.prompt ?? "").trim();
-        const previousResponseId = String(req.body.previousResponseId ?? "").trim() || null;
         const conversation = parseConversation(req.body.conversation);
         const uploadedImage = req.file;
-        const baseImageDataUrl = uploadedImage
-          ? toDataUrl(uploadedImage.buffer, uploadedImage.mimetype)
-          : null;
 
         if (!prompt) {
           res.status(400).json({ error: "Prompt is required." });
           return;
         }
 
-        if (!previousResponseId && !baseImageDataUrl) {
-          res.status(400).json({ error: "An image is required for the first generation." });
+        if (!uploadedImage) {
+          res.status(400).json({ error: "An image is required for every generation request." });
           return;
         }
 
         const result = await generateAdCreative({
           prompt,
           conversation,
-          previousResponseId,
-          baseImageDataUrl
+          uploadedImage
         });
 
         res.json(result);
@@ -186,10 +144,6 @@ export function createApp(options?: { serveStatic?: boolean }) {
   return app;
 }
 
-function toDataUrl(buffer: Buffer, mimeType: string) {
-  return `data:${mimeType};base64,${buffer.toString("base64")}`;
-}
-
 function parseConversation(value: unknown): ChatTurn[] {
   if (typeof value !== "string" || !value.trim()) {
     return [];
@@ -213,148 +167,196 @@ function parseConversation(value: unknown): ChatTurn[] {
 async function generateAdCreative(input: {
   prompt: string;
   conversation: ChatTurn[];
-  previousResponseId: string | null;
-  baseImageDataUrl: string | null;
+  uploadedImage: Express.Multer.File;
 }): Promise<GenerationResult> {
-  const chatContext = input.conversation
-    .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
-    .join("\n");
+  const editPrompt = buildEditPrompt(input.prompt, input.conversation);
+  const imageFile = await toFile(
+    input.uploadedImage.buffer,
+    input.uploadedImage.originalname || "product.jpg",
+    { type: input.uploadedImage.mimetype }
+  );
 
-  const creativeInstruction = `
-You are a creative director generating a polished product ad.
-Return structured plan metadata in the requested JSON schema and also generate the final ad image in the same response.
+  const response = await openai.images.edit({
+    model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini",
+    image: imageFile,
+    prompt: editPrompt,
+    input_fidelity: "high",
+    size: "auto",
+    quality: "medium",
+    output_format: "jpeg"
+  });
 
-Rules:
-- Preserve the core product identity and packaging details.
-- Produce a finished ad-style composition, not a plain cutout or raw background swap.
-- Be specific about lighting, styling, lens feel, composition, and ad intent.
-- If the user asks for typography, account for it in the scene and plan metadata.
-- Keep headlines concise and commercially believable.
-- Suggested edits should be concrete follow-up prompts.
-
-Conversation context:
-${chatContext || "No prior conversation."}
-
-Latest user request:
-${input.prompt}
-`.trim();
-
-  const initialInput: ResponseInputItem[] = [
-    {
-      role: "user",
-      content: [
-        { type: "input_text", text: creativeInstruction },
-        ...(input.baseImageDataUrl
-          ? [{ type: "input_image" as const, image_url: input.baseImageDataUrl, detail: "high" as const }]
-          : [])
-      ]
-    }
-  ];
-
-  const response = input.previousResponseId
-    ? await openai.responses.parse({
-        model: "gpt-5",
-        previous_response_id: input.previousResponseId,
-        input: creativeInstruction,
-        text: {
-          format: creativePlanSchema
-        },
-        tools: [
-          {
-            type: "image_generation",
-            background: "auto",
-            size: "auto",
-            quality: "high",
-            output_format: "jpeg"
-          }
-        ]
-      })
-    : await openai.responses.parse({
-        model: "gpt-5",
-        input: initialInput,
-        text: {
-          format: creativePlanSchema
-        },
-        tools: [
-          {
-            type: "image_generation",
-            input_fidelity: "high",
-            background: "auto",
-            size: "auto",
-            quality: "high",
-            output_format: "jpeg"
-          }
-        ]
-      });
-
-  const generationCall = findImageGenerationCall(response);
-  if (!generationCall?.result) {
+  const image = response.data?.[0];
+  if (!image?.b64_json) {
     throw new Error("OpenAI did not return an image.");
   }
 
-  const plan = normalizeCreativePlan(response.output_parsed as CreativePlan | null);
-  const format = generationCall.output_format ?? "jpeg";
-  const mimeType = format === "png" ? "image/png" : "image/jpeg";
+  const plan = buildCreativePlan(input.prompt, input.conversation, image.revised_prompt);
 
   return {
-    imageDataUrl: `data:${mimeType};base64,${generationCall.result}`,
-    responseId: response.id,
-    imageGenerationId: generationCall.id,
-    revisedPrompt: generationCall.revised_prompt ?? plan.scenePrompt,
-    action: generationCall.action ?? (input.previousResponseId ? "edit" : "generate"),
-    size: generationCall.size ?? "auto",
-    quality: generationCall.quality ?? "high",
+    imageDataUrl: `data:image/jpeg;base64,${image.b64_json}`,
+    responseId: randomUUID(),
+    imageGenerationId: randomUUID(),
+    revisedPrompt: image.revised_prompt ?? plan.scenePrompt,
+    action: input.conversation.length > 0 ? "edit" : "generate",
+    size: "auto",
+    quality: "medium",
     plan
   };
 }
 
-function normalizeCreativePlan(value: CreativePlan | null): CreativePlan {
-  if (!value) {
-    return {
-      productType: "Consumer product",
-      visualStrategy:
-        "Create a polished ad composition that keeps the product recognizable and premium.",
-      scenePrompt: "Create a premium advertising image of the uploaded product.",
-      headline: "Made To Stand Out",
-      subheadline: "Turn a simple packshot into a polished campaign visual.",
-      designNotes: [
-        "Keep the product sharply lit and clearly legible.",
-        "Use an intentional ad composition instead of a plain background swap.",
-        "Make the scene feel commercially believable."
-      ],
-      suggestedEdits: [
-        "Make the background warmer and more sunlit.",
-        "Push the headline larger and bolder.",
-        "Introduce stronger lifestyle props around the product."
-      ]
-    };
+function buildEditPrompt(prompt: string, conversation: ChatTurn[]) {
+  const recentContext = conversation
+    .slice(-4)
+    .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
+    .join("\n");
+
+  const combinedText = `${conversation
+    .slice(-4)
+    .map((entry) => entry.content)
+    .join(" ")} ${prompt}`.toLowerCase();
+
+  const lighting = pickFirstMatch(
+    combinedText,
+    [
+      { keywords: ["golden hour", "sunset", "warm light"], value: "golden-hour lighting with warm highlights and long soft shadows" },
+      { keywords: ["studio", "glossy", "rim light"], value: "controlled studio lighting with glossy highlights and crisp rim light" },
+      { keywords: ["moody", "dark", "dramatic"], value: "dramatic low-key lighting with sculpted highlights and deep contrast" },
+      { keywords: ["bright", "clean", "minimal"], value: "bright clean commercial lighting with soft diffused shadows" }
+    ],
+    "premium advertising lighting with dimensional highlights and clear product separation"
+  );
+
+  const composition = pickFirstMatch(
+    combinedText,
+    [
+      { keywords: ["instagram", "social", "poster"], value: "graphic ad composition with a strong focal point and clean negative space" },
+      { keywords: ["editorial", "magazine", "luxury"], value: "editorial composition with premium spacing and elevated visual hierarchy" },
+      { keywords: ["cinematic", "hero", "campaign"], value: "hero composition with cinematic depth, confident framing, and a premium campaign feel" },
+      { keywords: ["minimal", "clean"], value: "minimal composition with restrained props and intentional negative space" }
+    ],
+    "polished commercial composition with clear focal hierarchy and usable negative space"
+  );
+
+  const background = pickFirstMatch(
+    combinedText,
+    [
+      { keywords: ["desert", "road", "highway"], value: "a believable environmental backdrop that supports motion and scale" },
+      { keywords: ["summer", "tropical", "beach"], value: "a vibrant seasonal backdrop with warm atmosphere and fresh color contrast" },
+      { keywords: ["black", "studio", "backdrop"], value: "a refined studio backdrop with subtle gradients and reflective surfaces" },
+      { keywords: ["lifestyle", "home", "kitchen"], value: "a lifestyle setting with selective props that make the product feel naturally placed" }
+    ],
+    "an ad-ready background that feels intentional, premium, and commercially believable"
+  );
+
+  const styling = pickFirstMatch(
+    combinedText,
+    [
+      { keywords: ["orange", "vibrant", "bold"], value: "bold color contrast, energetic styling, and clean graphic tension" },
+      { keywords: ["luxury", "premium", "elegant"], value: "luxury styling, refined materials, and restrained premium detailing" },
+      { keywords: ["sport", "performance", "speed"], value: "performance-oriented styling with dynamic energy and sharper visual lines" },
+      { keywords: ["soft", "beauty", "skincare"], value: "soft premium styling with smooth gradients and clean tactile surfaces" }
+    ],
+    "premium ad styling with cohesive color, texture, and atmosphere"
+  );
+
+  const textRendering = combinedText.includes("headline") || combinedText.includes("text") || combinedText.includes("typography")
+    ? "If text is included, render it cleanly, legibly, and in a way that feels integrated into the ad design."
+    : "Do not force extra text into the image unless it supports the requested concept.";
+
+  return [
+    "Create a polished, aesthetically strong product advertisement from the uploaded image.",
+    "Preserve the product identity, packaging, proportions, colors, branding, and recognizable details.",
+    `Lighting: ${lighting}.`,
+    `Composition: ${composition}.`,
+    `Background: ${background}.`,
+    `Styling: ${styling}.`,
+    "Keep the product as the unmistakable hero subject and avoid clutter.",
+    "Make the result commercially realistic, high-end, and intentionally art directed.",
+    textRendering,
+    recentContext ? `Recent conversation context:\n${recentContext}` : "",
+    `Latest request: ${prompt}`
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function pickFirstMatch(
+  text: string,
+  options: Array<{ keywords: string[]; value: string }>,
+  fallback: string
+) {
+  for (const option of options) {
+    if (option.keywords.some((keyword) => text.includes(keyword))) {
+      return option.value;
+    }
   }
 
+  return fallback;
+}
+
+function buildCreativePlan(prompt: string, conversation: ChatTurn[], revisedPrompt?: string): CreativePlan {
+  const latestContext = conversation
+    .filter((entry) => entry.role === "user")
+    .slice(-2)
+    .map((entry) => entry.content)
+    .join("; ");
+
+  const productType = inferProductType(prompt, latestContext);
+  const visualStrategy = revisedPrompt
+    ? `Generated from the uploaded product image with direction focused on ${prompt.toLowerCase()}.`
+    : `Generated from the uploaded product image with direction focused on ${prompt.toLowerCase()}.`;
+
   return {
-    productType: value.productType,
-    visualStrategy: value.visualStrategy,
-    scenePrompt: value.scenePrompt,
-    headline: value.headline,
-    subheadline: value.subheadline,
-    designNotes: value.designNotes.slice(0, 3),
-    suggestedEdits: value.suggestedEdits.slice(0, 3)
+    productType,
+    visualStrategy,
+    scenePrompt: revisedPrompt || prompt,
+    headline: buildHeadline(prompt),
+    subheadline: "Refine with one focused visual change at a time.",
+    designNotes: fallbackNotes,
+    suggestedEdits: buildSuggestedEdits(prompt)
   };
 }
 
-function findImageGenerationCall(response: unknown): ImageGenerationCall | null {
-  const output = (response as { output?: unknown[] } | null)?.output;
-  if (!Array.isArray(output)) {
-    return null;
+function inferProductType(prompt: string, context: string) {
+  const text = `${prompt} ${context}`.toLowerCase();
+  if (text.includes("drink") || text.includes("beverage") || text.includes("bottle") || text.includes("can")) {
+    return "Packaged beverage";
+  }
+  if (text.includes("shoe") || text.includes("sneaker") || text.includes("fashion")) {
+    return "Fashion product";
+  }
+  if (text.includes("cream") || text.includes("serum") || text.includes("cosmetic") || text.includes("skincare")) {
+    return "Beauty product";
+  }
+  if (text.includes("bike") || text.includes("motorcycle") || text.includes("helmet")) {
+    return "Automotive product";
+  }
+  return "Consumer product";
+}
+
+function buildHeadline(prompt: string) {
+  const cleaned = prompt.replace(/[^a-z0-9\s]/gi, " ").trim();
+  if (!cleaned) {
+    return "Made To Stand Out";
   }
 
-  const match = output.find(
-    (item): item is ImageGenerationCall =>
-      Boolean(item) &&
-      typeof item === "object" &&
-      (item as { type?: unknown }).type === "image_generation_call" &&
-      typeof (item as { id?: unknown }).id === "string"
-  );
+  const words = cleaned.split(/\s+/).slice(0, 4).map(capitalizeWord);
+  return words.join(" ");
+}
 
-  return match ?? null;
+function buildSuggestedEdits(prompt: string) {
+  const base = prompt.toLowerCase();
+  const suggestions = [
+    base.includes("warm") ? "Make the lighting more directional and cinematic." : "Warm the lighting and add stronger contrast.",
+    base.includes("bold") ? "Simplify the composition and increase negative space." : "Make the composition bolder and more graphic.",
+    "Add one supporting prop or background element to strengthen the scene."
+  ];
+
+  return suggestions.slice(0, 3);
+}
+
+function capitalizeWord(word: string) {
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
 

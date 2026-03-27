@@ -113,7 +113,7 @@ export default function App() {
       if (result?.responseId) {
         formData.append("previousResponseId", result.responseId);
       }
-      if (!result && selectedFile) {
+      if (selectedFile) {
         formData.append("image", selectedFile);
       }
 
@@ -181,7 +181,7 @@ export default function App() {
       setMessages([]);
       setHistory([]);
       setComparePosition(54);
-      setError("Image is too large for Vercel upload limits. Use a file under 4 MB.");
+      setError("Image is too large for the current deployment path. Use a file under 4 MB.");
       event.target.value = "";
       return;
     }
@@ -358,5 +358,7 @@ export default function App() {
     </div>
   );
 }
+
+
 
 
