@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import express, { type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import OpenAI from "openai";
+import type { ResponseInputItem } from "openai/resources/responses/responses";
 
 dotenv.config();
 
@@ -15,6 +16,44 @@ const openai = new OpenAI({
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distDir = path.resolve(__dirname, "../dist");
+
+const creativePlanSchema = {
+  name: "creative_plan",
+  type: "json_schema",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      productType: { type: "string" },
+      visualStrategy: { type: "string" },
+      scenePrompt: { type: "string" },
+      headline: { type: "string" },
+      subheadline: { type: "string" },
+      designNotes: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3
+      },
+      suggestedEdits: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3
+      }
+    },
+    required: [
+      "productType",
+      "visualStrategy",
+      "scenePrompt",
+      "headline",
+      "subheadline",
+      "designNotes",
+      "suggestedEdits"
+    ]
+  }
+} as const;
 
 type ChatTurn = {
   role: "user" | "assistant";
@@ -29,6 +68,17 @@ type CreativePlan = {
   subheadline: string;
   designNotes: string[];
   suggestedEdits: string[];
+};
+
+type GenerationResult = {
+  imageDataUrl: string;
+  responseId: string;
+  imageGenerationId: string;
+  revisedPrompt: string;
+  action: string;
+  size: string;
+  quality: string;
+  plan: CreativePlan;
 };
 
 type GenerateRequestBody = {
@@ -87,40 +137,14 @@ export function createApp(options?: { serveStatic?: boolean }) {
           return;
         }
 
-        const planner = await createCreativePlan({
-          prompt,
-          conversation,
-          baseImageDataUrl
-        });
-
-        const generationResponse = await generateAdCreative({
+        const result = await generateAdCreative({
           prompt,
           conversation,
           previousResponseId,
-          baseImageDataUrl,
-          planner
+          baseImageDataUrl
         });
 
-        const generationCall = findImageGenerationCall(generationResponse);
-
-        if (!generationCall?.result) {
-          res.status(502).json({ error: "OpenAI did not return an image." });
-          return;
-        }
-
-        const format = generationCall.output_format ?? "jpeg";
-        const mimeType = format === "png" ? "image/png" : "image/jpeg";
-
-        res.json({
-          imageDataUrl: `data:${mimeType};base64,${generationCall.result}`,
-          responseId: getResponseId(generationResponse),
-          imageGenerationId: generationCall.id,
-          revisedPrompt: generationCall.revised_prompt ?? planner.scenePrompt,
-          action: generationCall.action ?? (previousResponseId ? "edit" : "generate"),
-          plan: planner,
-          size: generationCall.size ?? "auto",
-          quality: generationCall.quality ?? "high"
-        });
+        res.json(result);
       } catch (error) {
         console.error(error);
         res.status(500).json({
@@ -130,7 +154,6 @@ export function createApp(options?: { serveStatic?: boolean }) {
       }
     }
   );
-
 
   app.use("/api", (_req: Request, res: Response) => {
     res.status(404).json({ error: "API route not found." });
@@ -147,6 +170,7 @@ export function createApp(options?: { serveStatic?: boolean }) {
       error: error instanceof Error ? error.message : "Unexpected API error."
     });
   });
+
   if (serveStatic) {
     app.use(express.static(distDir));
     app.get("*", (req: Request, res: Response, next: NextFunction) => {
@@ -186,160 +210,135 @@ function parseConversation(value: unknown): ChatTurn[] {
   }
 }
 
-async function createCreativePlan(input: {
-  prompt: string;
-  conversation: ChatTurn[];
-  baseImageDataUrl: string | null;
-}): Promise<CreativePlan> {
-  const conversationSummary = input.conversation
-    .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
-    .join("\n");
-
-  const plannerInstruction = `
-You are a creative director for performance marketing.
-Analyze the product image and user request, then return JSON only with this exact shape:
-{
-  "productType": "short label",
-  "visualStrategy": "1-2 sentence summary",
-  "scenePrompt": "detailed prompt for image generation",
-  "headline": "short ad headline",
-  "subheadline": "one sentence supporting line",
-  "designNotes": ["note 1", "note 2", "note 3"],
-  "suggestedEdits": ["edit idea 1", "edit idea 2", "edit idea 3"]
-}
-
-Rules:
-- Preserve the product identity and packaging details.
-- Be specific about lighting, styling, lens feel, composition, and ad intent.
-- If the user asks for typography, call that out clearly.
-- Keep headlines concise and tasteful.
-- Avoid markdown fences.
-
-User prompt: ${input.prompt}
-Conversation context:
-${conversationSummary || "No prior conversation."}
-`.trim();
-
-  const plannerResponse = await openai.responses.create({
-    model: "gpt-4.1-mini",
-    input: [
-      {
-        role: "user",
-        content: [
-          { type: "input_text", text: plannerInstruction },
-          ...(input.baseImageDataUrl
-            ? [{ type: "input_image", image_url: input.baseImageDataUrl }]
-            : [])
-        ]
-      }
-    ]
-  } as Parameters<typeof openai.responses.create>[0]);
-
-  const parsed = safeJsonParse<Partial<CreativePlan>>(extractText(plannerResponse));
-
-  return {
-    productType: parsed.productType || "Consumer product",
-    visualStrategy:
-      parsed.visualStrategy ||
-      "Create a polished ad composition that keeps the product recognizable and premium.",
-    scenePrompt:
-      parsed.scenePrompt ||
-      `Create a premium advertising image of the uploaded product. User request: ${input.prompt}`,
-    headline: parsed.headline || "Made To Stand Out",
-    subheadline: parsed.subheadline || "Turn a simple packshot into a polished campaign visual.",
-    designNotes: normalizeStringArray(parsed.designNotes, [
-      "Keep the product sharply lit and clearly legible.",
-      "Use an intentional ad composition instead of a plain background swap.",
-      "Make the scene feel commercially believable."
-    ]),
-    suggestedEdits: normalizeStringArray(parsed.suggestedEdits, [
-      "Make the background warmer and more sunlit.",
-      "Push the headline larger and bolder.",
-      "Introduce stronger lifestyle props around the product."
-    ])
-  };
-}
-
 async function generateAdCreative(input: {
   prompt: string;
   conversation: ChatTurn[];
   previousResponseId: string | null;
   baseImageDataUrl: string | null;
-  planner: CreativePlan;
-}) {
+}): Promise<GenerationResult> {
   const chatContext = input.conversation
-    .map((entry) => `${entry.role}: ${entry.content}`)
+    .map((entry) => `${entry.role.toUpperCase()}: ${entry.content}`)
     .join("\n");
 
-  const generationInstruction = `
-Create a high-end product ad creative based on the user's request.
+  const creativeInstruction = `
+You are a creative director generating a polished product ad.
+Return structured plan metadata in the requested JSON schema and also generate the final ad image in the same response.
 
-Creative direction:
-${input.planner.visualStrategy}
+Rules:
+- Preserve the core product identity and packaging details.
+- Produce a finished ad-style composition, not a plain cutout or raw background swap.
+- Be specific about lighting, styling, lens feel, composition, and ad intent.
+- If the user asks for typography, account for it in the scene and plan metadata.
+- Keep headlines concise and commercially believable.
+- Suggested edits should be concrete follow-up prompts.
 
-Generation prompt:
-${input.planner.scenePrompt}
-
-Suggested headline to visually support the concept:
-${input.planner.headline}
-
-Supporting line:
-${input.planner.subheadline}
-
-Conversation so far:
+Conversation context:
 ${chatContext || "No prior conversation."}
 
 Latest user request:
 ${input.prompt}
-
-Requirements:
-- Preserve the core product identity from the source image.
-- Produce a finished ad-style composition, not a raw cutout.
-- Make the scene visually intentional with premium styling.
-- If the user asks for text in the creative, render it cleanly and legibly when possible.
 `.trim();
 
-  if (input.previousResponseId) {
-    return openai.responses.create({
-      model: "gpt-5",
-      previous_response_id: input.previousResponseId,
-      input: generationInstruction,
-      tools: [
-        {
-          type: "image_generation",
-          background: "auto",
-          size: "auto",
-          quality: "high",
-          output_format: "jpeg"
-        }
+  const initialInput: ResponseInputItem[] = [
+    {
+      role: "user",
+      content: [
+        { type: "input_text", text: creativeInstruction },
+        ...(input.baseImageDataUrl
+          ? [{ type: "input_image" as const, image_url: input.baseImageDataUrl, detail: "high" as const }]
+          : [])
       ]
-    } as Parameters<typeof openai.responses.create>[0]);
+    }
+  ];
+
+  const response = input.previousResponseId
+    ? await openai.responses.parse({
+        model: "gpt-5",
+        previous_response_id: input.previousResponseId,
+        input: creativeInstruction,
+        text: {
+          format: creativePlanSchema
+        },
+        tools: [
+          {
+            type: "image_generation",
+            background: "auto",
+            size: "auto",
+            quality: "high",
+            output_format: "jpeg"
+          }
+        ]
+      })
+    : await openai.responses.parse({
+        model: "gpt-5",
+        input: initialInput,
+        text: {
+          format: creativePlanSchema
+        },
+        tools: [
+          {
+            type: "image_generation",
+            input_fidelity: "high",
+            background: "auto",
+            size: "auto",
+            quality: "high",
+            output_format: "jpeg"
+          }
+        ]
+      });
+
+  const generationCall = findImageGenerationCall(response);
+  if (!generationCall?.result) {
+    throw new Error("OpenAI did not return an image.");
   }
 
-  return openai.responses.create({
-    model: "gpt-5",
-    input: [
-      {
-        role: "user",
-        content: [
-          { type: "input_text", text: generationInstruction },
-          ...(input.baseImageDataUrl
-            ? [{ type: "input_image", image_url: input.baseImageDataUrl }]
-            : [])
-        ]
-      }
-    ],
-    tools: [
-      {
-        type: "image_generation",
-        input_fidelity: "high",
-        background: "auto",
-        size: "auto",
-        quality: "high",
-        output_format: "jpeg"
-      }
-    ]
-  } as Parameters<typeof openai.responses.create>[0]);
+  const plan = normalizeCreativePlan(response.output_parsed as CreativePlan | null);
+  const format = generationCall.output_format ?? "jpeg";
+  const mimeType = format === "png" ? "image/png" : "image/jpeg";
+
+  return {
+    imageDataUrl: `data:${mimeType};base64,${generationCall.result}`,
+    responseId: response.id,
+    imageGenerationId: generationCall.id,
+    revisedPrompt: generationCall.revised_prompt ?? plan.scenePrompt,
+    action: generationCall.action ?? (input.previousResponseId ? "edit" : "generate"),
+    size: generationCall.size ?? "auto",
+    quality: generationCall.quality ?? "high",
+    plan
+  };
+}
+
+function normalizeCreativePlan(value: CreativePlan | null): CreativePlan {
+  if (!value) {
+    return {
+      productType: "Consumer product",
+      visualStrategy:
+        "Create a polished ad composition that keeps the product recognizable and premium.",
+      scenePrompt: "Create a premium advertising image of the uploaded product.",
+      headline: "Made To Stand Out",
+      subheadline: "Turn a simple packshot into a polished campaign visual.",
+      designNotes: [
+        "Keep the product sharply lit and clearly legible.",
+        "Use an intentional ad composition instead of a plain background swap.",
+        "Make the scene feel commercially believable."
+      ],
+      suggestedEdits: [
+        "Make the background warmer and more sunlit.",
+        "Push the headline larger and bolder.",
+        "Introduce stronger lifestyle props around the product."
+      ]
+    };
+  }
+
+  return {
+    productType: value.productType,
+    visualStrategy: value.visualStrategy,
+    scenePrompt: value.scenePrompt,
+    headline: value.headline,
+    subheadline: value.subheadline,
+    designNotes: value.designNotes.slice(0, 3),
+    suggestedEdits: value.suggestedEdits.slice(0, 3)
+  };
 }
 
 function findImageGenerationCall(response: unknown): ImageGenerationCall | null {
@@ -358,73 +357,4 @@ function findImageGenerationCall(response: unknown): ImageGenerationCall | null 
 
   return match ?? null;
 }
-
-function getResponseId(response: unknown): string {
-  const id = (response as { id?: unknown } | null)?.id;
-  return typeof id === "string" ? id : "";
-}
-
-function extractText(response: unknown): string {
-  const outputText = (response as { output_text?: unknown } | null)?.output_text;
-  if (typeof outputText === "string" && outputText.trim()) {
-    return outputText;
-  }
-
-  const output = (response as { output?: unknown[] } | null)?.output;
-  if (!Array.isArray(output)) {
-    return "";
-  }
-
-  const fragments: string[] = [];
-  for (const item of output) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-
-    const content = (item as { content?: unknown[] }).content;
-    if (!Array.isArray(content)) {
-      continue;
-    }
-
-    for (const piece of content) {
-      if (
-        piece &&
-        typeof piece === "object" &&
-        "text" in piece &&
-        typeof (piece as { text?: unknown }).text === "string"
-      ) {
-        fragments.push((piece as { text: string }).text);
-      }
-    }
-  }
-
-  return fragments.join("\n");
-}
-
-function safeJsonParse<T>(text: string): T {
-  const cleaned = text.trim().replace(/^```json\s*|\s*```$/g, "");
-
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1)) as T;
-    }
-    throw new Error("Could not parse creative plan JSON.");
-  }
-}
-
-function normalizeStringArray(value: unknown, fallback: string[]): string[] {
-  if (!Array.isArray(value)) {
-    return fallback;
-  }
-
-  const cleaned = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-  return cleaned.length ? cleaned.slice(0, 3) : fallback;
-}
-
-
-
 
