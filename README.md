@@ -1,42 +1,76 @@
 # Studio Ad Lab
 
-AI-powered product ad generator built with React, TypeScript, Express, and OpenAI.
+## Overview
 
-## Stack
+This project is an AI-powered product ad generator that takes:
+- a product image
+- a natural-language creative prompt
 
-- Frontend: React 19, Vite, TypeScript
+It returns a generated ad-style image plus a structured creative plan for follow-up refinement.
+
+## Tech Stack
+
+- Frontend: React, TypeScript, Vite
 - Backend: Express, TypeScript, Multer
-- AI: OpenAI Responses API
+- Models: OpenAI Responses API
 
-## Local Setup
+## Architecture
+
+![Architecture overview](./docs/architecture-overview.svg)
+
+System flow:
+- React client submits image + prompt to `POST /api/generate`
+- Express parses multipart form data and validates first-run vs refinement requests
+- OpenAI generates a creative plan first, then the ad image
+- API returns image data, plan metadata, and response state for iterative edits
+
+## Project Setup
 
 ### Prerequisites
 
-- Node.js 20+
-- `OPENAI_API_KEY`
+- Node.js `20+`
+- OpenAI API key
 
-### Install
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### Env
+### 2. Configure environment variables
 
 Create `.env` in the project root:
 
 ```env
-OPENAI_API_KEY=your_api_key_here
+OPENAI_API_KEY=your_openai_api_key
+PORT=8787
 ```
 
-### Run
+Notes:
+- `OPENAI_API_KEY` is required for `/api/generate`
+- `PORT` is optional and defaults to `8787`
+
+### 3. Run the app
 
 ```bash
 npm run dev
 ```
 
+Endpoints:
 - Frontend: `http://localhost:5173`
 - API: `http://localhost:8787`
+
+## Usage
+
+1. Upload a product image.
+2. Enter a prompt describing the ad direction.
+3. Generate the first version.
+4. Refine using follow-up prompts against the latest result.
+
+What to expect:
+- First generation requires an uploaded image.
+- Refinements reuse prior response state via `previousResponseId`.
+- The UI shows the generated image, creative direction, and version history.
 
 ## Build
 
@@ -45,21 +79,11 @@ npm run build
 npm start
 ```
 
-Production serves the built frontend through the Express server.
+Production serves the built frontend from the Express server.
 
-## Architecture
+## Troubleshooting
 
-![Architecture overview](./docs/architecture-overview.svg)
-
-Request flow:
-
-1. React client uploads an image and prompt to `POST /api/generate`
-2. Express parses multipart form data and keeps recent conversation context
-3. OpenAI creates a creative plan and generates the ad image
-4. API returns image data plus plan metadata for refinement/history in the UI
-
-## Notes
-
-- First generation uses the uploaded source image.
-- Follow-up prompts reuse the last result via `previousResponseId`.
-- Generated output is returned as a data URL and rendered directly in the client.
+- `OPENAI_API_KEY is missing.`: add the key to `.env`
+- `Prompt is required.`: submit a non-empty prompt
+- `An image is required for the first generation.`: upload an image before the first request
+- `OpenAI did not return an image.`: retry the request; the upstream generation step returned no image payload
