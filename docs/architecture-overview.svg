@@ -1,0 +1,101 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="80" x2="1080" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F2E9"/>
+      <stop offset="1" stop-color="#E8DED0"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFDF8"/>
+      <stop offset="1" stop-color="#F4EADF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#D96C3D"/>
+      <stop offset="1" stop-color="#A94824"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#7B5E44" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="720" rx="32" fill="url(#bg)"/>
+  <circle cx="1080" cy="96" r="140" fill="#F0C8A0" fill-opacity="0.28"/>
+  <circle cx="128" cy="650" r="170" fill="#D96C3D" fill-opacity="0.10"/>
+
+  <text x="90" y="108" fill="#2F241C" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700">
+    Studio Ad Lab Architecture
+  </text>
+  <text x="90" y="148" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="22">
+    React client, Express API, and OpenAI image generation flow
+  </text>
+
+  <g filter="url(#shadow)">
+    <rect x="88" y="214" width="304" height="350" rx="28" fill="url(#panel)"/>
+    <rect x="448" y="214" width="304" height="350" rx="28" fill="url(#panel)"/>
+    <rect x="808" y="214" width="304" height="350" rx="28" fill="url(#panel)"/>
+  </g>
+
+  <rect x="116" y="242" width="88" height="88" rx="22" fill="#F3CDA6"/>
+  <rect x="476" y="242" width="88" height="88" rx="22" fill="#F0B89A"/>
+  <rect x="836" y="242" width="88" height="88" rx="22" fill="#E99A72"/>
+
+  <rect x="138" y="264" width="44" height="44" rx="10" fill="#A94824"/>
+  <rect x="499" y="262" width="42" height="48" rx="10" fill="#A94824"/>
+  <path d="M860 276C860 268.268 866.268 262 874 262H886C893.732 262 900 268.268 900 276V298C900 305.732 893.732 312 886 312H874C866.268 312 860 305.732 860 298V276Z" fill="#A94824"/>
+  <circle cx="880" cy="287" r="9" fill="#F6E8DA"/>
+
+  <text x="116" y="376" fill="#2F241C" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">
+    React Client
+  </text>
+  <text x="476" y="376" fill="#2F241C" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">
+    Express API
+  </text>
+  <text x="836" y="376" fill="#2F241C" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">
+    OpenAI
+  </text>
+
+  <text x="116" y="418" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Upload image
+  </text>
+  <text x="116" y="448" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Enter prompt / refine
+  </text>
+  <text x="116" y="478" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Render preview + history
+  </text>
+
+  <text x="476" y="418" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Parse multipart form
+  </text>
+  <text x="476" y="448" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Keep recent conversation
+  </text>
+  <text x="476" y="478" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Return plan + image data
+  </text>
+
+  <text x="836" y="418" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Creative planning step
+  </text>
+  <text x="836" y="448" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Image generation step
+  </text>
+  <text x="836" y="478" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="21">
+    Follow-up refinement state
+  </text>
+
+  <rect x="370" y="300" width="100" height="48" rx="24" fill="url(#accent)"/>
+  <rect x="730" y="300" width="100" height="48" rx="24" fill="url(#accent)"/>
+  <text x="390" y="331" fill="#FFF8F2" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">
+    POST
+  </text>
+  <text x="745" y="331" fill="#FFF8F2" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">
+    API
+  </text>
+
+  <text x="344" y="598" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">
+    /api/generate
+  </text>
+  <text x="676" y="598" fill="#5D5146" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">
+    Responses API
+  </text>
+</svg>

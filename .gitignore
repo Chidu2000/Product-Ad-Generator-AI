@@ -2,3 +2,5 @@ node_modules
 dist
 dist-server
 .env
+.vercel
+AI_BUILD_LOG.md
